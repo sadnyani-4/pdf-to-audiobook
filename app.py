@@ -3,55 +3,37 @@ import fitz
 import asyncio
 import edge_tts
 import os
-import io
 
-st.set_page_config(page_title="Novel Reader Pro", page_icon="📖")
+st.set_page_config(page_title="Novel to Audiobook", page_icon="🎧")
 
-st.title("📖 Novel to Audiobook Converter")
-st.info("Tip: Large novels are processed in chunks to ensure high quality.")
+st.title("🎧 PDF to Audiobook Converter")
+st.write("Upload a novel and let AI read it to you.")
 
-uploaded_file = st.file_uploader("Upload your Novel (PDF)", type="pdf")
+uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
 
-async def convert_chunks(text_chunks):
-    combined_audio = b""
-    progress_bar = st.progress(0)
-    
-    for i, chunk in enumerate(text_chunks):
-        communicate = edge_tts.Communicate(chunk, "en-US-GuyNeural")
-        # Collect audio data in memory
-        async for chunk_data in communicate.stream():
-            if chunk_data["type"] == "audio":
-                combined_audio += chunk_data["data"]
-        
-        # Update progress
-        progress_bar.progress((i + 1) / len(text_chunks))
-    
-    return combined_audio
+if uploaded_file is not None:
+    # Save temp file
+    with open("temp.pdf", "wb") as f:
+        f.write(uploaded_file.getbuffer())
 
-if uploaded_file:
-    if st.button("Start Conversion"):
-        with st.spinner("Extracting and cleaning text..."):
-            doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
-            full_text = " ".join([page.get_text() for page in doc])
-            clean_text = " ".join(full_text.split())
-
-            # Split text into chunks of 3000 characters (approx 500 words)
-            # This prevents the TTS engine from timing out
-            chunks = [clean_text[i:i+3000] for i in range(0, len(clean_text), 3000)]
+    if st.button("Convert to Audiobook"):
+        with st.spinner("Processing... This may take a minute for long novels."):
+            # 1. Extract
+            doc = fitz.open("temp.pdf")
+            text = "".join([page.get_text() for page in doc])
             
-            st.write(f"Processing {len(chunks)} chapters/chunks...")
+            # 2. Clean (Simple version)
+            clean_text = " ".join(text.split())
             
-            # Run the conversion
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            audio_data = loop.run_until_complete(convert_chunks(chunks))
+            # 3. Convert (Limit to first 50,000 chars for the web demo)
+            async def make_audio():
+                communicate = edge_tts.Communicate(clean_text[:50000], "en-US-GuyNeural")
+                await communicate.save("output.mp3")
+
+            asyncio.run(make_audio())
             
-            st.success("✨ Your audiobook is ready!")
-            st.audio(audio_data, format="audio/mp3")
+            st.success("Conversion Complete!")
+            st.audio("output.mp3")
             
-            st.download_button(
-                label="Download Full Audiobook",
-                data=audio_data,
-                file_name="my_audiobook.mp3",
-                mime="audio/mp3"
-            )
+            with open("output.mp3", "rb") as f:
+                st.download_button("Download MP3", f, file_name="audiobook.mp3")
